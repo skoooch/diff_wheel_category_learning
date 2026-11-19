@@ -1,150 +1,200 @@
 <!DOCTYPE html>
 <html lang = 'en'>
     <head>
-        <title>Experiment - Scene similarity</title>
-        <style>                                   
-                   
-        </style>
+        <title>Experiment - Scene category learning</title>
         <script src='jspsych-6.2.0/jspsych.js'></script>
-        <script src="https://code.jquery.com/jquery-1.11.0.min.js"></script>        
-        <script src="https://cdn.jsdelivr.net/npm/bowser@2.5.3/es5.min.js"></script>        
-        <script src="js_library/modernizr-custom.js"></script>  
-        <script src="js_library/underscore-min.js"></script> 
-        <script src="js_library/factorial_noRandom.js"></script>      
-        <script src="jspsych-6.2.0/plugins/jspsych-fullscreen.js"></script>             
-        <script src='jspsych-6.2.0/plugins/jspsych-html-likert.js'></script> 
+        <script src="https://code.jquery.com/jquery-1.11.0.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bowser@2.5.3/es5.min.js"></script>
+        <script src="js_library/modernizr-custom.js"></script>
+        <script src="js_library/underscore-min.js"></script>
+        <script src="jspsych-6.2.0/plugins/jspsych-fullscreen.js"></script>
         <script src="jspsych-6.2.0/plugins/jspsych-external-html.js"></script>
         <script src="jspsych-6.2.0/plugins/jspsych-html-button-response.js"></script>
         <script src="jspsych-6.2.0/plugins/jspsych-html-keyboard-response.js"></script>
+        <script src="jspsych-6.2.0/plugins/jspsych-mouse-reconstruction.js"></script>
         <script src="jspsych-6.2.0/plugins/jspsych-survey-html-form.js"></script>
         <link href='jspsych-6.2.0/css/jspsych.css' rel='stylesheet' type="text/css">
+        <style>
+            #basic_arena {
+                position: relative;
+                margin: auto;
+                width: 1024px;
+                height: 768px;
+                display: flex;
+                align-items: center;
+            }
+            #full_arena {
+                position: absolute;
+                width: 100%;
+                height: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+        </style>
     </head>
     <body></body>
 
     <script>
-        
-        // * data collection endpoint (Google Apps Script web app URL, see apps_script/Code.gs) * //
-        var SAVE_URL = 'https://script.google.com/macros/s/AKfycbx6sS5rXbq8cupwAARrz-Zt4nsFYusFO_nAQ7hk2nekFZF2_bENzn3nL0M7iJUXnq3k/exec';
 
-        // * browser info * //        
+        // * data collection endpoint (Google Apps Script web app URL, see apps_script/Code.gs) * //
+        // TODO: replace with the URL of the newly deployed web app
+        var SAVE_URL = 'https://script.google.com/macros/s/AKfycbwzbqDFhdG5n1vAkY6L5i0VHP-p-TCoUdM_2qAOdZzj4HDQnK9GGD_pONWUKW15KEEjYA/exec';
+
+        // * browser info * //
         var browser = bowser.getParser(window.navigator.userAgent);
         var browser_info = browser.getBrowser();
-               
-        // * image host * //
-        var img_host = 'stimuli/';
-        var img_ext = '.jpg';
-        var radii = ['05', '10', '20'];
 
-        // * wheel info * //        
-        var main_wheel = '01';
-        var prac_wheel = '01';
+        // * experiment parameters * //
+        var N_IMAGES = 34;            // images per learning round
+        var N_ROUNDS = 5;             // learning rounds (34 x 5 = 170 trials)
+        var N_PRACTICE = 12;          // practice trials (separate wheel)
+        var FEEDBACK_MS = 1000;
+        var ISI_MS = 1000;
+        var N_MEMORY_BLOCKS = 2;      // each of the 34 images is tested once per block
+        var MEMORY_FIX_MS = 1000;
+        var MEMORY_TARGET_MS = 200;
+        var MIN_BOUNDARY_DIST = 3;    // sampled frames must be at least this far (in frames) from a boundary
+
+        var img_host = 'stimuli/';
+        var img_ext = '.png';
+        var N_FRAMES = 360;           // frames per main wheel (frame_0000 ... frame_0359)
+
+        var WHEELS = {
+            single: {dir: 'WheelSingle', n_frames: N_FRAMES},
+            multi:  {dir: 'WheelMulti',  n_frames: N_FRAMES},
+            prac:   {dir: 'TestWheel',   n_frames: 64}
+        };
+
+        // PLACEHOLDER: the two frames marking the existing semantic category boundary
+        // on the multicategory wheel (bedroom <-> kitchen). Replace with the real frames.
+        var SEMANTIC_BOUNDARY = [90, 270];
+        // PLACEHOLDER: how far (in frames) the skewed boundary is shifted from the semantic boundary
+        var SKEW_OFFSET = 30;
+
+        // * condition assignment * //
+        // 1: arbitrary boundary on the single-category wheel
+        // 2: boundary orthogonal to the semantic boundary on the multicategory wheel
+        // 3: boundary skewed relative to the semantic boundary on the multicategory wheel
+        // Override for testing with e.g. index.html?cond=2
+        var url_params = new URLSearchParams(window.location.search);
+
+        // * REDCap consent * //
+        // Participants first complete the REDCap consent form, which redirects back to this page with consented=1.
+        var EXPERIMENT_URL = 'https://skoooch.github.io/REPO/index.html';
+        var REDCAP_CONSENT_URL = 'https://redcap.utoronto.ca/surveys/?s=XDAML8KYEAER9EKA&consent_type=3';
+        // ?test and ?consented skip the redirect
+        var needs_consent = !url_params.has('test') && !url_params.has('consented');
+        if (needs_consent) {
+            var pid = url_params.get('PROLIFIC_PID') || 'unknown';
+            var return_url = EXPERIMENT_URL + '?consented=1&PROLIFIC_PID=' + encodeURIComponent(pid)
+                + '&STUDY_ID=' + encodeURIComponent(url_params.get('STUDY_ID') || '')
+                + '&SESSION_ID=' + encodeURIComponent(url_params.get('SESSION_ID') || '');
+            window.location.replace(REDCAP_CONSENT_URL + '&consent_prolific=' + encodeURIComponent(pid)
+                + '&consent_redirect=' + encodeURIComponent(return_url));
+        }
+        var cond_id = parseInt(url_params.get('cond'));
+        if ([1, 2, 3].indexOf(cond_id) < 0) { cond_id = _.sample([1, 2, 3]); }
+        var cond_name = ['single_arbitrary', 'multi_orthogonal', 'multi_skewed'][cond_id - 1];
+        var wheel = (cond_id === 1) ? WHEELS.single : WHEELS.multi;
         var participant_id = Math.random().toString(36).slice(2, 10);
 
-        // * condition set up * //       
-        var p_cond = [ // pairs covering the entire range of px-correlation
-            {radius:'05', stim_list:[0  ,0  ]},
-            {radius:'05', stim_list:[240,270]},
-            {radius:'05', stim_list:[0  ,180]},
-            {radius:'10', stim_list:[90 ,120]},
-            {radius:'10', stim_list:[90 ,210]},
-            {radius:'10', stim_list:[0  ,300]},
-            {radius:'20', stim_list:[60 ,120]},
-            {radius:'20', stim_list:[240,330]},
-            {radius:'20', stim_list:[0  ,180]},
-            {radius:'20', stim_list:[90 ,210]}
-        ];        
-        var left_item = _.shuffle(Array(Math.floor(p_cond.length/2)).fill(0).concat(Array(Math.ceil(p_cond.length/2)).fill(1)));
-        for (var i=0; i<p_cond.length; i++){            
-            p_cond[i].left_item_idx = left_item[i];            
-            p_cond[i].stim_path_left = [
-                img_host+'Wheel'+prac_wheel+'/wheel'+prac_wheel+'_r'+p_cond[i].radius+'/'+
-                ("00000"+p_cond[i].stim_list[left_item[i]]).slice(-6)+img_ext
-            ];
-            p_cond[i].stim_path_right = [
-                img_host+'Wheel'+prac_wheel+'/wheel'+prac_wheel+'_r'+p_cond[i].radius+'/'+
-                ("00000"+p_cond[i].stim_list[(left_item[i]+1)%2]).slice(-6)+img_ext
-            ];
-        };
-        // -- main condition -- //
-        // all pairs within the 0-offset set (0,30,...330) and within the 15-offset set (15,45,...345)
-        var pair = [];
-        [0, 15].forEach(function(offset){
-            var img_num = _.range(offset, 360, 30);
-            var identical_pair = _.sample(img_num,2); // catch trials
-            pair.push([identical_pair[0],identical_pair[0]]);
-            pair.push([identical_pair[1],identical_pair[1]]);
-            for (var i = 0; i < img_num.length - 1; i++) {
-                for (var j = i + 1; j < img_num.length; j++) {
-                    pair.push([img_num[i], img_num[j]]);
-                }
-            }
-        });
-        var e_factors = {
-            radius: radii,                 
-            stim_list: pair
-        };
-        var e_cond = factorial_noRandom(e_factors);        
-        // select one to be preseted left
-        var left_item = _.shuffle(Array(e_cond.length/2).fill(0).concat(Array(e_cond.length/2).fill(1)));
-        // specify path
-        for (var i=0; i<e_cond.length; i++){
-            e_cond[i].left_item_idx = left_item[i];
-            e_cond[i].stim_path_left = [
-                img_host+'Wheel'+main_wheel+'/wheel'+main_wheel+'_r'+e_cond[i].radius+'/'+
-                ("00000"+e_cond[i].stim_list[left_item[i]]).slice(-6)+img_ext
-            ];
-            e_cond[i].stim_path_right = [
-                img_host+'Wheel'+main_wheel+'/wheel'+main_wheel+'_r'+e_cond[i].radius+'/'+
-                ("00000"+e_cond[i].stim_list[(left_item[i]+1)%2]).slice(-6)+img_ext
-            ];
-        };
-        // randomly keep a fraction of all trials per participant, then divide into blocks
-        // set TRIAL_FRACTION to 1 for the full set (408 trials, 6 blocks) or 0.5 for half (204 trials, 4 blocks)
-        var TRIAL_FRACTION = 1;
-        e_cond = _.sample(e_cond, Math.round(e_cond.length * TRIAL_FRACTION));
-        var n_block = (TRIAL_FRACTION === 1) ? 6 : 4;
-        var e_cond = _.chunk(_.shuffle(e_cond), e_cond.length/n_block);
+        // * helpers * //
+        function mod(a, n) { return ((a % n) + n) % n; }
+        function frame_path(w, f) {
+            return img_host + w.dir + '/radius_1x/frame_' + ('0000' + f).slice(-4) + img_ext;
+        }
+        // shortest circular distance (in frames) from frame f to the nearest boundary frame
+        function dist_to_boundary(f, boundary, n) {
+            return Math.min.apply(null, boundary.map(function(b){
+                var d = mod(f - b, n);
+                return Math.min(d, n - d);
+            }));
+        }
+        // side 0 = frames in the arc running from boundary[0] up to boundary[1]; side 1 = the rest
+        function boundary_side(f, boundary, n) {
+            return mod(f - boundary[0], n) < mod(boundary[1] - boundary[0], n) ? 0 : 1;
+        }
+        // n evenly spaced frames with a random offset, none within MIN_BOUNDARY_DIST of a boundary
+        function sample_frames(count, boundary, n) {
+            var step = n / count, frames;
+            do {
+                var offset = Math.random() * step;
+                frames = _.range(count).map(function(i){ return Math.round(offset + i * step) % n; });
+            } while (frames.some(function(f){ return dist_to_boundary(f, boundary, n) < MIN_BOUNDARY_DIST; }));
+            return frames;
+        }
+        // build trial list: each frame gets its category, distance, and path
+        function make_items(w, boundary, frames, flip) {
+            return frames.map(function(f){
+                var side = boundary_side(f, boundary, w.n_frames);
+                return {
+                    frame: f,
+                    stim_path: frame_path(w, f),
+                    distance: dist_to_boundary(f, boundary, w.n_frames),
+                    category: ((side ^ flip) === 0) ? 1 : 2   // 1 -> "E", 2 -> "I"
+                };
+            });
+        }
 
-        // TEMPORARY test mode: open index.html?test to run 3 practice + 3 trials per block (remove before real launch)
-        if (new URLSearchParams(window.location.search).has('test')) {
-            p_cond = p_cond.slice(0, 3);
-            e_cond = e_cond.map(function(b){ return b.slice(0, 3); });
+        // * boundary for the main learning task * //
+        var boundary;
+        if (cond_id === 1) {
+            var b0 = Math.floor(Math.random() * (N_FRAMES / 2));
+            boundary = [b0, b0 + N_FRAMES / 2];
+        } else if (cond_id === 2) {
+            boundary = SEMANTIC_BOUNDARY.map(function(b){ return mod(b + N_FRAMES / 4, N_FRAMES); });
+        } else {
+            boundary = SEMANTIC_BOUNDARY.map(function(b){ return mod(b + SKEW_OFFSET, N_FRAMES); });
         }
-        
-        // * preload images *//        
-        var stimuli = [];
-        for (i=0; i <p_cond.length; i++){
-            stimuli.push(
-                p_cond[i].stim_path_left,
-                p_cond[i].stim_path_right,
-                );
+        // which side of the boundary is category 1 (E) is counterbalanced across participants
+        var flip = _.sample([0, 1]);
+        var main_items = make_items(wheel, boundary, sample_frames(N_IMAGES, boundary, wheel.n_frames), flip);
+
+        // * practice (different wheel, arbitrary boundary) * //
+        var prac_b0 = Math.floor(Math.random() * (WHEELS.prac.n_frames / 2));
+        var prac_boundary = [prac_b0, prac_b0 + WHEELS.prac.n_frames / 2];
+        var prac_items = _.shuffle(make_items(
+            WHEELS.prac, prac_boundary, sample_frames(N_PRACTICE, prac_boundary, WHEELS.prac.n_frames), _.sample([0, 1])
+        ));
+
+        // 5 rounds, each containing all images in a fresh random order
+        var rounds = _.range(1, N_ROUNDS + 1).map(function(r){
+            return _.shuffle(main_items).map(function(it){ return _.extend({round: r}, it); });
+        });
+
+        // memory task: each block tests all 34 images once in random order
+        var memory_blocks = _.range(1, N_MEMORY_BLOCKS + 1).map(function(b){
+            return _.shuffle(main_items).map(function(it){ return _.extend({block: b}, it); });
+        });
+
+        // TEMPORARY test mode: open index.html?test to run 3 practice trials, 2 rounds of 3 trials, and 2 memory blocks of 3 trials
+        if (url_params.has('test')) {
+            prac_items = prac_items.slice(0, 3);
+            rounds = rounds.slice(0, 2).map(function(r){ return r.slice(0, 3); });
+            memory_blocks = memory_blocks.map(function(b){ return b.slice(0, 3); });
         }
-        for (b=0; b<n_block; b++){
-            for (i=0; i <e_cond[b].length; i++){
-                stimuli.push(
-                    e_cond[b][i].stim_path_left,
-                    e_cond[b][i].stim_path_right,
-                );
-            };
-        };
-        
+
+        // * preload images * //
+        var stimuli = prac_items.map(function(it){ return it.stim_path; })
+            .concat(main_items.map(function(it){ return it.stim_path; }), ['stimuli/handle_wheel.png', 'stimuli/noBar_wheel.png']);
+
         // ************** Display set up *************** //
         // * Consent * //
         var consent_inst = {
             type: 'html-button-response',
-            stimulus: html='<p style="color: black; font-size: 20px;">'
+            stimulus: '<p style="color: black; font-size: 20px;">'
                 +'We would like to get your consent before starting the experiment.</p>',
-            choices: ['Consent page'], 
+            choices: ['Consent page'],
             data: {disp_type: 'consent-instruction'}
-        }
+        };
         var check_consent = function(elem) {
-            if (document.getElementById('consent_checkbox').checked) {                             
+            if (document.getElementById('consent_checkbox').checked) {
                 return true;
             } else {
                 alert("If you wish to participate, you must click the checkbox.'");
                 return false;
             }
-            return false;
         };
         var consent_page = {
             type: 'external-html',
@@ -152,120 +202,234 @@
             cont_btn: "start",
             check_fn: check_consent,
             data: {disp_type: 'online_consent_form'}
-        }        
+        };
 
-        // * Instruction * //  
+        // * Instructions * //
         var instruction1 = {
             type: 'html-button-response',
             stimulus: '<p style="color: black; font-size: 20px;">'+
                 '<b>Welcome to the experiment!</b><br><br>'+
-                'In this experiment, you will be asked to judge the similarity of scene image pairs.<br>'+
-                'Carefully look at the images and rate how similar they look to each other.<br>'+
-                'Click the Next button to start the practice block. There will be '+p_cond.length+' trials.</p>',               
-            choices: ['Start Practice'],                  
-            data: {disp_type: 'instrcution-practice'}
-        };    
-        var n_trials = _.flatten(e_cond).length;   
+                'In this experiment, you will learn to sort scene images into two categories.<br>'+
+                'On each trial, a scene will appear. Press <b>E</b> for category 1 or <b>I</b> for category 2.<br>'+
+                'You will not be told the rule in advance: you will learn it from the feedback ("correct" or "wrong") after each response.<br>'+
+                'Respond as quickly and accurately as you can.<br><br>'+
+                'First, there will be '+prac_items.length+' practice trials with a different set of scenes.</p>',
+            choices: ['Start Practice'],
+            data: {disp_type: 'instruction-practice'}
+        };
         var instruction2 = {
             type: 'html-button-response',
             stimulus: '<p style="color: black; font-size: 20px;">'+
-                "Practice trials are done. Now let's move onto the main session.<br><br>"+
-                'In the main session, you will perform the same task.<br>'+
-                'There will be '+n_trials+' trials, and '+(n_block-1)+' breaks will be given.</p>',
-            choices: ['Start Main'],                  
-            data: {disp_type: 'instruction-parctice'}
-        };
-        var test_break = {
-            type: 'html-button-response',
-            stimulus: '<p style="color: black; font-size: 20px;">'+
-                'Take a break, and press the button to start again.</p>',
-            choices: ['Start'],                  
-            data: {disp_type: 'instruction-break'}
+                "Practice is done. Now let's move on to the learning task.<br><br>"+
+                'The task is the same, but with new scenes and a new category rule.<br>'+
+                'There will be '+(N_ROUNDS * rounds[0].length)+' trials in '+N_ROUNDS+' rounds.</p>',
+            choices: ['Start Learning'],
+            data: {disp_type: 'instruction-main'}
         };
 
         // * Trial composition * //
-        var scale = [
-            "<b>0</b><br>Low similarity", 
-            "<b>1</b>", 
-            "<b>2</b>", 
-            "<b>3</b>", 
-            "<b>4</b>",
-            "<b>5</b><br>High similarity"
-        ];        
-        var pair_judge ={
-            type: 'html-likert',
-            questions: [{
-                name: 'thisPair',
-                stimulus_L: jsPsych.timelineVariable('stim_path_left'),
-                stimulus_R: jsPsych.timelineVariable('stim_path_right'),                
-                labels: scale,                
-                required: true
-            }],
-            randomize_question_order: true,
-            scale_width: 500,
-            data: {
-                disp_type: 'likert_display',                
-                radius: jsPsych.timelineVariable('radius'),
-                pair: jsPsych.timelineVariable('stim_list'),                                   
-                left_item_idx: jsPsych.timelineVariable('left_item_idx'),
-                stim_path_left: jsPsych.timelineVariable('stim_path_left'),
-                stim_path_right: jsPsych.timelineVariable('stim_path_right'),
-            },
-            on_finish: function() {
-                // progress bar
-                var curr_progress_bar_value = jsPsych.getProgressBarCompleted();
-                jsPsych.setProgressBar(curr_progress_bar_value + (1/n_trials));
-            }
-        }
-        var judgment_prac = {
-            timeline: [pair_judge],
-            timeline_variables: p_cond,
-            randomize_order: true
-        }
-        var judgment_main = e_cond.map(function(block){
-            return {
-                timeline: [pair_judge],
-                timeline_variables: block,
-                randomize_order: true
+        function make_trial_nodes(phase) {
+            var progress_total = (phase === 'learning') ? N_ROUNDS * rounds[0].length : 0;
+            var show = {
+                type: 'html-keyboard-response',
+                stimulus: function(){
+                    return '<img src="'+jsPsych.timelineVariable('stim_path', true)+
+                        '" style="max-width:500px; max-height:60vh;"><p>E = category 1 &nbsp;&nbsp;|&nbsp;&nbsp; I = category 2</p>';
+                },
+                choices: ['e', 'i'],
+                data: {
+                    disp_type: phase + '_trial',
+                    subject_id: participant_id,
+                    condition: cond_name,
+                    frame: jsPsych.timelineVariable('frame'),
+                    distance_to_boundary: jsPsych.timelineVariable('distance'),
+                    category_label: jsPsych.timelineVariable('category'),
+                    round: jsPsych.timelineVariable('round'),
+                    stim_path: jsPsych.timelineVariable('stim_path')
+                },
+                on_finish: function(data){
+                    data.key = jsPsych.pluginAPI.convertKeyCodeToKeyCharacter(data.key_press).toLowerCase();
+                    data.response_category = (data.key === 'e') ? 1 : 2;
+                    data.correct = (data.response_category === data.category_label);
+                    if (progress_total) {
+                        jsPsych.setProgressBar(jsPsych.getProgressBarCompleted() + 1 / progress_total);
+                    }
+                }
             };
+            var feedback = {
+                type: 'html-keyboard-response',
+                stimulus: function(){
+                    var last = jsPsych.data.get().last(1).values()[0];
+                    return last.correct
+                        ? '<p style="font-size:40px; color:green;">correct</p>'
+                        : '<p style="font-size:40px; color:red;">wrong</p>';
+                },
+                choices: jsPsych.NO_KEYS,
+                trial_duration: FEEDBACK_MS,
+                data: {disp_type: 'feedback'}
+            };
+            var isi = {
+                type: 'html-keyboard-response',
+                stimulus: '',
+                choices: jsPsych.NO_KEYS,
+                trial_duration: ISI_MS,
+                data: {disp_type: 'isi'}
+            };
+            return [show, feedback, isi];
+        }
+
+        var practice_block = {
+            timeline: make_trial_nodes('practice'),
+            timeline_variables: prac_items.map(function(it){ return _.extend({round: 0}, it); })
+        };
+        var learning_rounds = rounds.map(function(items){
+            return {timeline: make_trial_nodes('learning'), timeline_variables: items};
+        });
+
+        // * Memory task * //
+        var memory_inst = {
+            type: 'html-button-response',
+            stimulus: '<p style="color: black; font-size: 20px;">'+
+                '<b>Memory task</b><br><br>'+
+                'Now you will do a different task. On each trial, a scene image will appear briefly. Remember it.<br>'+
+                'After a short delay, a wheel of scenes will appear. Move the mouse around the wheel to find the scene '+
+                'that best matches the image you just saw, then click to confirm.<br><br>'+
+                'First, there will be '+prac_items.length+' practice trials.</p>',
+            choices: ['Start Practice'],
+            data: {disp_type: 'instruction-memory-practice'}
+        };
+        var memory_inst_main = {
+            type: 'html-button-response',
+            stimulus: '<p style="color: black; font-size: 20px;">'+
+                'Practice is done. Now the main memory task begins, using the scenes from the learning task.<br><br>'+
+                'There will be '+(N_MEMORY_BLOCKS * memory_blocks[0].length)+' trials in '+N_MEMORY_BLOCKS+' blocks.</p>',
+            choices: ['Start'],
+            data: {disp_type: 'instruction-memory-main'}
+        };
+        function make_memory_nodes(phase, w) {
+            var fixation = {
+                type: 'html-keyboard-response',
+                stimulus: '<div id="basic_arena"><div id="full_arena" style="font-size:24px;">+</div></div>',
+                choices: jsPsych.NO_KEYS,
+                trial_duration: MEMORY_FIX_MS,
+                data: {disp_type: 'memory_fixation'}
+            };
+            var target = {
+                type: 'html-keyboard-response',
+                stimulus: function(){
+                    return '<div id="basic_arena"><div id="full_arena"><img src="'+
+                        jsPsych.timelineVariable('stim_path', true)+'" style="height:256px;"></div></div>';
+                },
+                choices: jsPsych.NO_KEYS,
+                trial_duration: MEMORY_TARGET_MS,
+                data: {disp_type: 'memory_target'}
+            };
+            var adjust = {
+                type: 'mouse-reconstruction',
+                div_name: 'full_arena',
+                starting_value: 360,
+                wheel_path: img_host + w.dir + '/radius_1x/',
+                n_frames: w.n_frames,
+                image_size: 'height: 256px',
+                indicator_path: ['stimuli/noBar_wheel.png', 'stimuli/handle_wheel.png'],
+                indicator_size: 'height: 450px',
+                wait_fix: 1000,
+                data: {
+                    disp_type: phase + '_memory_trial',
+                    subject_id: participant_id,
+                    condition: cond_name,
+                    frame: jsPsych.timelineVariable('frame'),
+                    distance_to_boundary: jsPsych.timelineVariable('distance'),
+                    category_label: jsPsych.timelineVariable('category'),
+                    block: jsPsych.timelineVariable('block')
+                },
+                on_finish: function(data){
+                    // signed circular error in frames (positive = response is further along the wheel)
+                    var n = w.n_frames;
+                    data.error = mod(data.response_frame - data.frame + n / 2, n) - n / 2;
+                    data.abs_error = Math.abs(data.error);
+                }
+            };
+            return [fixation, target, adjust];
+        }
+        var memory_prac = {
+            timeline: make_memory_nodes('practice', WHEELS.prac),
+            timeline_variables: prac_items.map(function(it){ return _.extend({block: 0}, it); })
+        };
+        var memory_main = [];
+        memory_blocks.forEach(function(items, i){
+            memory_main.push({timeline: make_memory_nodes('main', wheel), timeline_variables: items});
+            if (i < memory_blocks.length - 1) {
+                memory_main.push({
+                    type: 'html-button-response',
+                    stimulus: '<p style="color: black; font-size: 20px;">Block '+(i+1)+' is done.<br>Take a break, and press the button to continue.</p>',
+                    choices: ['Start'],
+                    data: {disp_type: 'instruction-break'}
+                });
+            }
         });
 
         // * save data * //
+        // Prolific passes the participant's ID in the study URL (?PROLIFIC_PID=...)
+        var prolific_pid = url_params.get('PROLIFIC_PID') || '';
+        var PROLIFIC_COMPLETION_URL = 'https://app.prolific.com/submissions/complete?cc=C1H8GVSC';
+        var study_id = url_params.get('STUDY_ID') || '';
+        var session_id = url_params.get('SESSION_ID') || '';
+
+        // Sends only the trials recorded since the last successful send, so partial data survives dropouts.
+        var n_saved = 0;
+        function save_chunk(is_final) {
+            var all = jsPsych.data.get().values();
+            var chunk = all.slice(n_saved);
+            var data = {experiment: "sceneWheel_categoryLearning",
+                        participant_id: participant_id,
+                        prolific_pid: prolific_pid,
+                        study_id: study_id,
+                        session_id: session_id,
+                        condition: cond_name,
+                        boundary_frames: boundary,
+                        semantic_boundary_frames: SEMANTIC_BOUNDARY,
+                        category1_side: flip,
+                        wheel: wheel.dir,
+                        is_final: !!is_final,
+                        data: chunk,
+                        browser_info: browser_info,
+                        interaction_data: is_final ? jsPsych.data.getInteractionData().values() : [],
+                        date: Date()};
+            var download_backup = function(){
+                jsPsych.data.get().localSave('csv', 'sceneWheel_'+participant_id+'.csv');
+            };
+            if (!SAVE_URL) { if (is_final) { download_backup(); } return; }
+            // text/plain keeps this a "simple" request, which Apps Script accepts without CORS preflight
+            fetch(SAVE_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                keepalive: true,
+                headers: {'Content-Type': 'text/plain;charset=utf-8'},
+                body: JSON.stringify(data)
+            }).then(function(){
+                n_saved = Math.max(n_saved, all.length);   // on network failure n_saved stays put, so the next save resends
+            }).catch(function(){ if (is_final) { download_backup(); } });
+        }
+        function make_checkpoint() {
+            return {
+                type: 'html-keyboard-response',
+                stimulus: '<p>Saving your progress...</p>',
+                choices: jsPsych.NO_KEYS,
+                trial_duration: 500,
+                data: {disp_type: 'checkpoint'},
+                on_finish: function(){ save_chunk(false); }
+            };
+        }
         var save_data = {
             type: 'html-keyboard-response',
             stimulus: '<p>We are saving your data, please stay on this page.</p>',
             choices: jsPsych.NO_KEYS,
             trial_duration: 3000,
-            on_finish: function(){              
-                // get data values
-                var data = {experiment:"sceneWheel_similarityJudgment",
-                            participant_id: participant_id,
-                            wheel_info:[main_wheel, prac_wheel],
-                            data:jsPsych.data.get().values(),
-                            browser_info:browser_info,
-                            interaction_data:jsPsych.data.getInteractionData().values(),
-                            exp_condition:e_cond,
-                            date: Date()};
-
-                var download_backup = function(){
-                    jsPsych.data.get().localSave('csv', 'sceneWheel_'+participant_id+'.csv');
-                };
-                if (!SAVE_URL) { download_backup(); return; }
-                // text/plain keeps this a "simple" request, which Apps Script accepts without CORS preflight
-                fetch(SAVE_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: {'Content-Type': 'text/plain;charset=utf-8'},
-                    body: JSON.stringify(data)
-                }).catch(function(){ download_backup(); });
-            }           
-        }
+            on_finish: function(){ save_chunk(true); }
+        };
 
         // * demographic page  * //
-        // definiting response scales that can be used.
-        var gender_options = ['Male', 'Female', 'Other'];
-        var handed_option = ['Right', 'Left'];
-        var page_2_options = ["Strongly Disagree", "Disagree", "Somewhat Disagree", "Neural", "Somewhat Agree", "Agree", "Strongly Agree"];
         var dem_info = {
             type: 'survey-html-form',
             preamble: '<p><b>We would like to collect the basic information below.</b></p>',
@@ -284,7 +448,7 @@
                 '</br>Do you wear corrective lenses?: '+
                 '<input name="lense" type="radio" value="yes" /><label for="yes">Yes</label>'+
                 '<input name="lense" type="radio" value="no" /><label for="no">No</label>'+
-                '</br>If yes, specify glasses or contacts:  <input name="hearaidtype" type="text" /></br>'+                
+                '</br>If yes, specify glasses or contacts:  <input name="hearaidtype" type="text" /></br>'+
                 // hearing aids
                 '</br>Do you use hearing aid?: '+
                 '<input name="hear" type="radio" value="yes" /><label for="yes">Yes</label>'+
@@ -306,48 +470,42 @@
             data: {
                 disp_type: 'demographic_info',
             }
-        }
+        };
 
-        
-        // * Debriefing form * //       
+        // * Debriefing form * //
         var debrief_page = {
             type: 'external-html',
             url: "debriefing/debriefing_letter.html",
-            cont_btn: "finish",            
-            data: {disp_type: 'debriefing_page'}
-        }
-        
-              
+            cont_btn: "finish",
+            data: {disp_type: 'debriefing_page'},
+            on_finish: function(){ window.location.href = PROLIFIC_COMPLETION_URL; }
+        };
 
-        // * timeline fill up * //  
-        timeline = [];
-        timeline.push(instruction1);        
-        timeline.push(judgment_prac);
+        // * timeline fill up * //
+        var timeline = [];
+        timeline.push(instruction1);
+        timeline.push(practice_block);
         timeline.push(instruction2);
-        for (b=0; b<n_block-1; b++) {          
-            timeline.push(judgment_main[b]);
-            timeline.push(test_break);
-        }
-        timeline.push(judgment_main[n_block-1]);        
-        timeline.push(dem_info);
+        learning_rounds.forEach(function(r){ timeline.push(r); timeline.push(make_checkpoint()); });
+        timeline.push(memory_inst);
+        timeline.push(memory_prac);
+        timeline.push(memory_inst_main);
+        memory_main.forEach(function(m){
+            timeline.push(m);
+            if (m.timeline) { timeline.push(make_checkpoint()); }   // after each memory block, not after break screens
+        });
         timeline.push(save_data);
         timeline.push(debrief_page);
-       
-        jsPsych.init({
-            timeline: timeline,           
-            preload_images: stimuli,  
-            show_progress_bar: true, 
-            auto_update_progress_bar: false           
-        });      
-       
-    
+
+        if (!needs_consent) {
+            jsPsych.init({
+                timeline: timeline,
+                preload_images: stimuli,
+                show_progress_bar: true,
+                auto_update_progress_bar: false
+            });
+        }
 
    </script>
 
 </html>
-    
-
-    
-
-       
-
