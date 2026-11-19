@@ -94,7 +94,8 @@
                 + '&consent_redirect=' + encodeURIComponent(return_url));
         }
         var cond_id = parseInt(url_params.get('cond'));
-        if ([1, 2, 3].indexOf(cond_id) < 0) { cond_id = _.sample([1, 2, 3]); }
+        // Condition 3 (skewed) is disabled for now: random assignment is between 1 and 2 only (?cond=3 still forces it for testing)
+        if ([1, 2, 3].indexOf(cond_id) < 0) { cond_id = _.sample([1, 2]); }
         var cond_name = ['single_arbitrary', 'multi_orthogonal', 'multi_skewed'][cond_id - 1];
         var wheel = (cond_id === 1) ? WHEELS.single : WHEELS.multi;
         var participant_id = Math.random().toString(36).slice(2, 10);
@@ -507,5 +508,4 @@
         }
 
    </script>
-
 </html>
