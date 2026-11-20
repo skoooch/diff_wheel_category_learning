@@ -12,6 +12,11 @@ jsPsych.plugins['mouse-reconstruction'] = (function() {
 
   var plugin = {};
 
+  // Browsers only report the cursor position on mouse events, so track it continuously
+  // (including during earlier trials) to know where the cursor is when the wheel appears.
+  var last_mouse = null;
+  document.addEventListener('mousemove', function(e){ last_mouse = {x: e.clientX, y: e.clientY}; });
+
   plugin.info = {
     name: 'mouse-reconstruction',
     description: '',
@@ -132,10 +137,12 @@ jsPsych.plugins['mouse-reconstruction'] = (function() {
       // random wheel starting point
       var wsp = Math.floor(Math.random() * 360);            
       
-      // current param (will be continuously updated)
-      var param = trial.starting_value;
+      // current param (will be continuously updated); starts at a random scene so the start is unrelated to the target
+      var param = Math.floor(Math.random() * 360);
+      var start_frame = Math.floor(param * n_frames / 360);
+      var moved = false;
             
-      // param is an angle (0-359; 360 = initial state); map it onto the available frames
+      // param is an angle (0-359); map it onto the available frames
       function param_to_frame(p) {
         return Math.floor((p % 360) * n_frames / 360);
       }
@@ -143,7 +150,7 @@ jsPsych.plugins['mouse-reconstruction'] = (function() {
       // Send current param to display function   
       function draw(param) {
         // make initial display with the wheel without indicator bar         
-        if (param==360){
+        if (!moved){
           var indicator = trial.indicator_path[0];
         } else{
           var indicator = trial.indicator_path[1];
@@ -166,6 +173,7 @@ jsPsych.plugins['mouse-reconstruction'] = (function() {
         var y = e.clientY-container_centerY;
         mouse_angle = Math.floor((Math.atan2(y, x)*180/Math.PI + 360 )% 360); // in positive, integer, degree unit
         param = ((mouse_angle - wsp + 360) % 360); // "+360 %360" is to make scene index a positive value
+        moved = true;
                 
         // refresh the display
         draw(param);
@@ -184,7 +192,9 @@ jsPsych.plugins['mouse-reconstruction'] = (function() {
           "fix_duration": start_time - fixstart,
           "rt": response_time,
           "response": final_angle,
-          "response_frame": param_to_frame(final_angle)
+          "response_frame": param_to_frame(final_angle),
+          "start_frame": start_frame,
+          "moved": moved
         };
         display_element.innerHTML = "";       
 
@@ -204,6 +214,16 @@ jsPsych.plugins['mouse-reconstruction'] = (function() {
       var rect = arena.getBoundingClientRect();      
       var container_centerX = rect.left + rect.width/2;
       var container_centerY = rect.top + rect.height/2;
+
+      // Start on the scene the cursor currently points to, so the first mouse movement causes no jump
+      if (last_mouse) {
+        var x0 = last_mouse.x - container_centerX;
+        var y0 = last_mouse.y - container_centerY;
+        var a0 = Math.floor((Math.atan2(y0, x0)*180/Math.PI + 360) % 360);
+        param = (a0 - wsp + 360) % 360;
+        start_frame = param_to_frame(param);
+        draw(param);
+      }
       
     }
 
