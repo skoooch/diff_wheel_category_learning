@@ -11,7 +11,22 @@ function doPost(e) {
   }
 }
 
-// Each request carries only the trials recorded since the participant's previous save
+// Each request carries the trials recorded since the participant's previous save, plus a few overlapping
+// ones from before it. The overlap guards against dropped trials; appendNew skips any already stored.
+function appendNew(sheet, rows, idxCol) {
+  var existing = {};
+  var last = sheet.getLastRow();
+  if (last > 1) {
+    sheet.getRange(2, 1, last - 1, idxCol).getValues().forEach(function (r) {
+      existing[r[0] + '|' + r[idxCol - 1]] = true;   // Subject_id | trial_index
+    });
+  }
+  var fresh = rows.filter(function (r) { return !existing[r[0] + '|' + r[idxCol - 1]]; });
+  if (fresh.length) {
+    sheet.getRange(last + 1, 1, fresh.length, fresh[0].length).setValues(fresh);
+  }
+}
+
 function handlePost(e) {
   var d = JSON.parse(e.postData.contents);
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -29,7 +44,7 @@ function handlePost(e) {
               t.round, t.category_label, t.rt, t.trial_index, d.date];
     });
   if (rows.length) {
-    trials.getRange(trials.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+    appendNew(trials, rows, 10);
   }
 
   // Memory (mouse-reconstruction) trials: target frame vs. the frame the participant selected
@@ -45,7 +60,7 @@ function handlePost(e) {
               t.distance_to_boundary, t.category_label, t.rt, t.trial_index, d.date];
     });
   if (memRows.length) {
-    mem.getRange(mem.getLastRow() + 1, 1, memRows.length, memRows[0].length).setValues(memRows);
+    appendNew(mem, memRows, 11);
   }
 
   // Per-participant boundary info (boundary frames differ across participants in condition 1)

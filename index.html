@@ -55,10 +55,11 @@
         var MEMORY_FIX_MS = 1000;
         var MEMORY_TARGET_MS = 200;
         var MIN_BOUNDARY_DIST = 3;    // sampled frames must be at least this far (in frames) from a boundary
+        var BOUNDARY_JITTER = 3;      // multicategory wheel: learned boundary varies by +/- this many frames per participant
 
         var img_host = 'stimuli/';
         var img_ext = '.png';
-        var N_FRAMES = 360;           // frames per main wheel (frame_0000 ... frame_0359)
+        var N_FRAMES = 360;           
 
         var WHEELS = {
             single: {dir: 'WheelSingle', n_frames: N_FRAMES},
@@ -143,10 +144,11 @@
         if (cond_id === 1) {
             var b0 = Math.floor(Math.random() * (N_FRAMES / 2));
             boundary = [b0, b0 + N_FRAMES / 2];
-        } else if (cond_id === 2) {
-            boundary = SEMANTIC_BOUNDARY.map(function(b){ return mod(b + N_FRAMES / 4, N_FRAMES); });
         } else {
-            boundary = SEMANTIC_BOUNDARY.map(function(b){ return mod(b + SKEW_OFFSET, N_FRAMES); });
+            // multicategory wheel: small per-participant jitter, shifting both boundaries together
+            var jitter = _.random(-BOUNDARY_JITTER, BOUNDARY_JITTER);
+            var shift = (cond_id === 2) ? N_FRAMES / 4 : SKEW_OFFSET;
+            boundary = SEMANTIC_BOUNDARY.map(function(b){ return mod(b + shift + jitter, N_FRAMES); });
         }
         // which side of the boundary is category 1 (E) is counterbalanced across participants
         var flip = _.sample([0, 1]);
@@ -174,6 +176,14 @@
             prac_items = prac_items.slice(0, 3);
             rounds = rounds.slice(0, 2).map(function(r){ return r.slice(0, 3); });
             memory_blocks = memory_blocks.map(function(b){ return b.slice(0, 3); });
+        }
+
+        // progress bar covers the main learning and main memory trials (not practice)
+        function total_main_trials() {
+            var n = 0;
+            rounds.forEach(function(r){ n += r.length; });
+            memory_blocks.forEach(function(b){ n += b.length; });
+            return n;
         }
 
         // * preload images * //
@@ -230,7 +240,7 @@
 
         // * Trial composition * //
         function make_trial_nodes(phase) {
-            var progress_total = (phase === 'learning') ? N_ROUNDS * rounds[0].length : 0;
+            var progress_total = (phase === 'learning') ? total_main_trials() : 0;
             var show = {
                 type: 'html-keyboard-response',
                 stimulus: function(){
@@ -349,6 +359,9 @@
                     var n = w.n_frames;
                     data.error = mod(data.response_frame - data.frame + n / 2, n) - n / 2;
                     data.abs_error = Math.abs(data.error);
+                    if (phase === 'main') {
+                        jsPsych.setProgressBar(jsPsych.getProgressBarCompleted() + 1 / total_main_trials());
+                    }
                 }
             };
             return [fixation, target, adjust];
@@ -373,15 +386,16 @@
         // * save data * //
         // Prolific passes the participant's ID in the study URL (?PROLIFIC_PID=...)
         var prolific_pid = url_params.get('PROLIFIC_PID') || '';
-        var PROLIFIC_COMPLETION_URL = 'https://app.prolific.com/submissions/complete?cc=C1H8GVSC';
+        var PROLIFIC_COMPLETION_URL = 'https://app.prolific.com/submissions/complete?cc=C1HAFGDS';
         var study_id = url_params.get('STUDY_ID') || '';
         var session_id = url_params.get('SESSION_ID') || '';
 
         // Sends only the trials recorded since the last successful send, so partial data survives dropouts.
         var n_saved = 0;
+        var SAVE_OVERLAP = 10;   // also resend the last few already-sent entries; the server skips duplicates
         function save_chunk(is_final) {
             var all = jsPsych.data.get().values();
-            var chunk = all.slice(n_saved);
+            var chunk = all.slice(Math.max(0, n_saved - SAVE_OVERLAP));
             var data = {experiment: "sceneWheel_categoryLearning",
                         participant_id: participant_id,
                         prolific_pid: prolific_pid,
@@ -397,20 +411,16 @@
                         browser_info: browser_info,
                         interaction_data: is_final ? jsPsych.data.getInteractionData().values() : [],
                         date: Date()};
-            var download_backup = function(){
-                jsPsych.data.get().localSave('csv', 'sceneWheel_'+participant_id+'.csv');
-            };
-            if (!SAVE_URL) { if (is_final) { download_backup(); } return; }
+            if (!SAVE_URL) { return; }
             // text/plain keeps this a "simple" request, which Apps Script accepts without CORS preflight
             fetch(SAVE_URL, {
                 method: 'POST',
                 mode: 'no-cors',
-                keepalive: true,
                 headers: {'Content-Type': 'text/plain;charset=utf-8'},
                 body: JSON.stringify(data)
             }).then(function(){
                 n_saved = Math.max(n_saved, all.length);   // on network failure n_saved stays put, so the next save resends
-            }).catch(function(){ if (is_final) { download_backup(); } });
+            }).catch(function(err){ console.warn('save failed, will resend with next save', err); });
         }
         function make_checkpoint() {
             return {
