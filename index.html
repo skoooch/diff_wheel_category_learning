@@ -215,6 +215,32 @@
             data: {disp_type: 'online_consent_form'}
         };
 
+        // * Wheel preloading * //
+        // The memory task's response wheel needs every frame of the wheel. They are loaded after the learning
+        // task, on a loading screen, so no memory trial has to wait for them.
+        function start_wheel_preload(on_done, on_progress) {
+            var urls = [];
+            [WHEELS.prac, wheel].forEach(function(w){
+                for (var f = 0; f < w.n_frames; f++) { urls.push(frame_path(w, f)); }
+            });
+            jsPsych.pluginAPI.preloadImages(urls, on_done, function(n){ on_progress(n, urls.length); });
+        }
+        var wheel_wait = {
+            type: 'html-keyboard-response',
+            stimulus: '<p style="font-size:20px;">Loading the next task, please wait...<br><span id="wheel_progress"></span></p>',
+            choices: jsPsych.NO_KEYS,
+            data: {disp_type: 'wheel_wait'},
+            on_load: function(){
+                start_wheel_preload(
+                    function(){ jsPsych.finishTrial(); },
+                    function(n, total){
+                        var el = document.getElementById('wheel_progress');
+                        if (el) { el.textContent = Math.round(100 * n / total) + '%'; }
+                    }
+                );
+            }
+        };
+
         // * Instructions * //
         var instruction1 = {
             type: 'html-button-response',
@@ -498,6 +524,7 @@
         timeline.push(practice_block);
         timeline.push(instruction2);
         learning_rounds.forEach(function(r){ timeline.push(r); timeline.push(make_checkpoint()); });
+        timeline.push(wheel_wait);
         timeline.push(memory_inst);
         timeline.push(memory_prac);
         timeline.push(memory_inst_main);
